@@ -1,0 +1,29 @@
+# Включаем базовые зависимости
+-r base.txt
+
+# Разработка и тестирование
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+
+# Линтеры и форматтеры
+black==23.11.0
+isort==5.12.0
+flake8==6.1.0
+mypy==1.7.1
+
+# Pre-commit hooks
+pre-commit==3.6.0
+
+# Отладка LangChain
+langsmith==0.0.70
+langchain-experimental==0.0.50
+
+# Jupyter для экспериментов
+jupyter==1.0.0
+ipykernel==6.26.0
+
+# Профилирование
+py-spy==0.3.14
+memory-profiler==0.61.0

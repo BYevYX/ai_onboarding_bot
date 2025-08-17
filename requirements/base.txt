@@ -1,0 +1,58 @@
+# Основные зависимости приложения
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Telegram Bot
+aiogram==3.2.0
+
+# База данных
+sqlalchemy[asyncio]==2.0.23
+alembic==1.13.1
+asyncpg==0.29.0
+
+# Redis
+redis[hiredis]==5.0.1
+
+# LangChain и AI
+langchain==0.1.0
+langchain-core==0.1.0
+langchain-community==0.0.10
+langchain-openai==0.0.5
+langchain-qdrant==0.0.1
+langgraph==0.0.20
+openai==1.6.1
+sentence-transformers==2.2.2
+qdrant-client==1.7.0
+
+# Обработка документов
+PyPDF2==3.0.1
+pdfplumber==0.10.3
+python-docx==1.1.0
+python-magic==0.4.27
+
+# Многоязычность
+langdetect==1.0.9
+googletrans==4.0.0rc1
+
+# HTTP клиент
+httpx==0.25.2
+aiohttp==3.9.1
+
+# Утилиты
+python-multipart==0.0.6
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-dotenv==1.0.0
+
+# Логирование
+structlog==23.2.0
+python-json-logger==2.0.7
+
+# Мониторинг
+prometheus-client==0.19.0
+sentry-sdk[fastapi]==1.38.0
+
+# Валидация и сериализация
+marshmallow==3.20.1
