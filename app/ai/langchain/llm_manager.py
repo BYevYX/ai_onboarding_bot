@@ -5,8 +5,6 @@ LLM Manager for handling OpenAI models through LangChain.
 from typing import Any, Dict, List, Optional
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-from langchain_core.callbacks import CallbackManagerForLLMRun
-from langchain_core.language_models.llms import LLM
 
 from app.core.config import get_settings
 from app.core.logging import get_logger

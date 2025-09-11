@@ -26,8 +26,6 @@ graph TB
     end
     
     subgraph "Monitoring"
-        PROM[Prometheus]
-        GRAF[Grafana]
         ALERT[AlertManager]
     end
     
@@ -55,12 +53,6 @@ graph TB
     WORKER --> REDIS
     WORKER --> QDRANT
     
-    PROM --> APP1
-    PROM --> APP2
-    PROM --> API
-    
-    GRAF --> PROM
-    ALERT --> PROM
     
     APP1 --> FILES
     APP2 --> FILES
@@ -246,45 +238,6 @@ services:
     networks:
       - app-network
 
-  # Monitoring Services
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: prometheus
-    restart: unless-stopped
-    volumes:
-      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-      - ./monitoring/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml
-      - prometheus_data:/prometheus
-    ports:
-      - "9090:9090"
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-      - '--storage.tsdb.retention.time=200h'
-      - '--web.enable-lifecycle'
-    networks:
-      - app-network
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: grafana
-    restart: unless-stopped
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
-      - GF_USERS_ALLOW_SIGN_UP=false
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
-    ports:
-      - "3000:3000"
-    depends_on:
-      - prometheus
-    networks:
-      - app-network
-
   alertmanager:
     image: prom/alertmanager:latest
     container_name: alertmanager
@@ -349,8 +302,6 @@ volumes:
   postgres_data:
   redis_data:
   qdrant_data:
-  prometheus_data:
-  grafana_data:
   alertmanager_data:
   elasticsearch_data:
 
@@ -542,8 +493,6 @@ API_VERSION=v1
 
 # Telegram Bot
 TELEGRAM_BOT_TOKEN=your-telegram-bot-token
-TELEGRAM_WEBHOOK_URL=https://your-domain.com/webhook/telegram
-TELEGRAM_WEBHOOK_SECRET=your-webhook-secret
 
 # Database
 POSTGRES_DB=telegram_bot
@@ -569,10 +518,8 @@ GOOGLE_TRANSLATE_API_KEY=your-google-translate-key
 
 # Monitoring
 SENTRY_DSN=your-sentry-dsn
-GRAFANA_PASSWORD=your-grafana-password
 
 # Alerting
-SLACK_WEBHOOK_URL=your-slack-webhook-url
 TELEGRAM_ALERT_BOT_TOKEN=your-alert-bot-token
 TELEGRAM_ALERT_CHAT_ID=your-alert-chat-id
 
@@ -642,7 +589,6 @@ http {
 
     # Rate limiting
     limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
-    limit_req_zone $binary_remote_addr zone=webhook:10m rate=100r/s;
 
     # Upstream servers
     upstream telegram_bot {
@@ -684,17 +630,6 @@ server {
         proxy_connect_timeout 30s;
         proxy_send_timeout 30s;
         proxy_read_timeout 30s;
-    }
-
-    # Telegram webhook
-    location /webhook/ {
-        limit_req zone=webhook burst=50 nodelay;
-        
-        proxy_pass http://telegram_bot;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     # Health check

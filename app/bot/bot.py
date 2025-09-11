@@ -9,8 +9,6 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.redis import RedisStorage
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-from aiohttp import web
 import redis.asyncio as redis
 
 from app.core.config import get_settings
@@ -118,51 +116,6 @@ class TelegramBot:
                 message=f"Failed to start polling: {str(e)}",
                 error_code="POLLING_FAILED"
             )
-    
-    async def setup_webhook(self, app: web.Application) -> None:
-        """Setup webhook for bot."""
-        try:
-            bot = await self.create_bot()
-            dp = await self.create_dispatcher()
-            
-            # Set webhook
-            webhook_url = self.settings.telegram.webhook_url
-            if webhook_url:
-                await bot.set_webhook(
-                    url=webhook_url,
-                    secret_token=self.settings.telegram.webhook_secret
-                )
-                logger.info("Webhook set", url=webhook_url)
-            
-            # Setup webhook handler
-            webhook_handler = SimpleRequestHandler(
-                dispatcher=dp,
-                bot=bot,
-                secret_token=self.settings.telegram.webhook_secret
-            )
-            
-            # Register webhook handler
-            webhook_handler.register(app, path="/webhook")
-            setup_application(app, dp, bot=bot)
-            
-            logger.info("Webhook setup completed")
-            
-        except Exception as e:
-            logger.error("Webhook setup failed", error=str(e))
-            raise TelegramBotError(
-                message=f"Failed to setup webhook: {str(e)}",
-                error_code="WEBHOOK_SETUP_FAILED"
-            )
-    
-    async def delete_webhook(self) -> None:
-        """Delete webhook."""
-        try:
-            bot = await self.create_bot()
-            await bot.delete_webhook()
-            logger.info("Webhook deleted")
-            
-        except Exception as e:
-            logger.error("Failed to delete webhook", error=str(e))
 
 
 # Global bot instance
@@ -181,19 +134,3 @@ async def run_bot_polling():
         logger.error("Bot crashed", error=str(e))
         raise
 
-
-def create_webhook_app() -> web.Application:
-    """Create web application for webhook mode."""
-    configure_logging()
-    
-    app = web.Application()
-    
-    # Setup webhook
-    asyncio.create_task(telegram_bot.setup_webhook(app))
-    
-    return app
-
-
-if __name__ == "__main__":
-    # Run in polling mode for development
-    asyncio.run(run_bot_polling())

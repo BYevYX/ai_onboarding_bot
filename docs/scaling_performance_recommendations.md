@@ -489,42 +489,38 @@ class DatabasePoolManager:
 #### Advanced Metrics
 ```python
 # app/monitoring/advanced_metrics.py
-from prometheus_client import Counter, Histogram, Gauge, Summary
 import time
 from functools import wraps
+import logging
 
-# Детальные метрики производительности
-REQUEST_LATENCY = Histogram(
-    'telegram_bot_request_latency_seconds',
-    'Request latency in seconds',
-    ['method', 'endpoint', 'status'],
-    buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]
-)
+logger = logging.getLogger(__name__)
 
-DATABASE_QUERY_TIME = Histogram(
-    'telegram_bot_db_query_seconds',
-    'Database query time in seconds',
-    ['query_type', 'table'],
-    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0]
-)
+# Детальные метрики производительности (используя внутренние счетчики)
+class MetricsCollector:
+    def __init__(self):
+        self.request_times = []
+        self.db_query_times = []
+        self.cache_stats = {"hits": 0, "misses": 0}
+        self.active_connections = {"db": 0, "redis": 0}
+    
+    def record_request_time(self, duration: float, method: str, endpoint: str, status: str):
+        self.request_times.append({
+            "duration": duration,
+            "method": method,
+            "endpoint": endpoint,
+            "status": status,
+            "timestamp": time.time()
+        })
+    
+    def record_db_query_time(self, duration: float, query_type: str, table: str):
+        self.db_query_times.append({
+            "duration": duration,
+            "query_type": query_type,
+            "table": table,
+            "timestamp": time.time()
+        })
 
-CACHE_HIT_RATE = Gauge(
-    'telegram_bot_cache_hit_rate',
-    'Cache hit rate percentage',
-    ['cache_type']
-)
-
-ACTIVE_CONNECTIONS = Gauge(
-    'telegram_bot_active_connections',
-    'Number of active connections',
-    ['connection_type']
-)
-
-RAG_PROCESSING_QUALITY = Summary(
-    'telegram_bot_rag_quality_score',
-    'RAG response quality score',
-    ['language', 'category']
-)
+metrics_collector = MetricsCollector()
 
 def monitor_performance(metric_name: str = None):
     """
@@ -544,11 +540,12 @@ def monitor_performance(metric_name: str = None):
                 raise
             finally:
                 duration = time.time() - start_time
-                REQUEST_LATENCY.labels(
+                metrics_collector.record_request_time(
+                    duration=duration,
                     method="async",
                     endpoint=metric_name or func.__name__,
                     status=status
-                ).observe(duration)
+                )
         
         return wrapper
     return decorator
@@ -561,25 +558,25 @@ groups:
   - name: performance_alerts
     rules:
       - alert: HighResponseTime
-        expr: histogram_quantile(0.95, rate(telegram_bot_request_latency_seconds_bucket[5m])) > 2
+        expr: avg_response_time > 2
         for: 2m
         labels:
           severity: warning
         annotations:
           summary: "High response time detected"
-          description: "95th percentile response time is {{ $value }}s"
+          description: "Average response time is {{ $value }}s"
 
       - alert: DatabaseSlowQueries
-        expr: histogram_quantile(0.95, rate(telegram_bot_db_query_seconds_bucket[5m])) > 1
+        expr: avg_db_query_time > 1
         for: 2m
         labels:
           severity: warning
         annotations:
           summary: "Slow database queries detected"
-          description: "95th percentile DB query time is {{ $value }}s"
+          description: "Average DB query time is {{ $value }}s"
 
       - alert: LowCacheHitRate
-        expr: telegram_bot_cache_hit_rate < 70
+        expr: cache_hit_rate < 70
         for: 5m
         labels:
           severity: warning
@@ -588,7 +585,7 @@ groups:
           description: "Cache hit rate is {{ $value }}%"
 
       - alert: HighMemoryUsage
-        expr: (container_memory_usage_bytes / container_spec_memory_limit_bytes) * 100 > 85
+        expr: memory_usage_percent > 85
         for: 5m
         labels:
           severity: critical

@@ -21,15 +21,15 @@ graph TB
     end
     
     subgraph "Metrics Collection"
-        PM[Prometheus Metrics]
         CM[Custom Metrics]
         AM[Application Metrics]
+        IM[Internal Metrics]
     end
     
     subgraph "Storage Layer"
         ELK[ELK Stack]
-        PROM[Prometheus]
-        GRAF[Grafana]
+        LS[Log Storage]
+        MS[Metrics Storage]
     end
     
     subgraph "Alerting"
@@ -53,16 +53,15 @@ graph TB
     LF --> LA
     LA --> ELK
     
-    APP --> PM
-    API --> PM
-    BG --> PM
+    APP --> CM
+    API --> CM
+    BG --> CM
     
-    PM --> CM
     CM --> AM
-    AM --> PROM
+    AM --> IM
+    IM --> MS
     
-    PROM --> GRAF
-    PROM --> AM_SVC
+    MS --> AM_SVC
     
     AM_SVC --> SLACK
     AM_SVC --> EMAIL
@@ -294,58 +293,85 @@ class SystemLogger:
 
 #### Prometheus метрики
 ```python
-from prometheus_client import Counter, Histogram, Gauge, Info
 import time
 from functools import wraps
+from collections import defaultdict, deque
+from typing import Dict, List, Any
+import threading
 
-# Определение метрик
-REQUEST_COUNT = Counter(
-    'telegram_bot_requests_total',
-    'Total number of requests',
-    ['method', 'endpoint', 'status']
-)
+# Внутренняя система метрик без prometheus
+class InternalMetricsCollector:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.request_counts = defaultdict(int)
+        self.request_durations = defaultdict(list)
+        self.active_users = defaultdict(int)
+        self.search_queries = defaultdict(int)
+        self.document_operations = defaultdict(int)
+        self.rag_processing_times = defaultdict(list)
+        self.cache_operations = defaultdict(int)
+        self.error_counts = defaultdict(int)
+        
+    def increment_counter(self, metric_name: str, labels: Dict[str, str] = None):
+        with self._lock:
+            key = self._make_key(metric_name, labels)
+            if metric_name == "requests":
+                self.request_counts[key] += 1
+            elif metric_name == "search_queries":
+                self.search_queries[key] += 1
+            elif metric_name == "document_operations":
+                self.document_operations[key] += 1
+            elif metric_name == "cache_operations":
+                self.cache_operations[key] += 1
+            elif metric_name == "errors":
+                self.error_counts[key] += 1
+    
+    def record_duration(self, metric_name: str, duration: float, labels: Dict[str, str] = None):
+        with self._lock:
+            key = self._make_key(metric_name, labels)
+            if metric_name == "request_duration":
+                self.request_durations[key].append(duration)
+                # Ограничиваем размер списка
+                if len(self.request_durations[key]) > 1000:
+                    self.request_durations[key] = self.request_durations[key][-500:]
+            elif metric_name == "rag_processing":
+                self.rag_processing_times[key].append(duration)
+                if len(self.rag_processing_times[key]) > 1000:
+                    self.rag_processing_times[key] = self.rag_processing_times[key][-500:]
+    
+    def set_gauge(self, metric_name: str, value: int, labels: Dict[str, str] = None):
+        with self._lock:
+            key = self._make_key(metric_name, labels)
+            if metric_name == "active_users":
+                self.active_users[key] = value
+    
+    def _make_key(self, metric_name: str, labels: Dict[str, str] = None) -> str:
+        if not labels:
+            return metric_name
+        label_str = ",".join(f"{k}={v}" for k, v in sorted(labels.items()))
+        return f"{metric_name}[{label_str}]"
+    
+    def get_metrics_summary(self) -> Dict[str, Any]:
+        with self._lock:
+            return {
+                "request_counts": dict(self.request_counts),
+                "avg_request_durations": {
+                    k: sum(v) / len(v) if v else 0
+                    for k, v in self.request_durations.items()
+                },
+                "active_users": dict(self.active_users),
+                "search_queries": dict(self.search_queries),
+                "document_operations": dict(self.document_operations),
+                "avg_rag_processing_times": {
+                    k: sum(v) / len(v) if v else 0
+                    for k, v in self.rag_processing_times.items()
+                },
+                "cache_operations": dict(self.cache_operations),
+                "error_counts": dict(self.error_counts)
+            }
 
-REQUEST_DURATION = Histogram(
-    'telegram_bot_request_duration_seconds',
-    'Request duration in seconds',
-    ['method', 'endpoint']
-)
-
-ACTIVE_USERS = Gauge(
-    'telegram_bot_active_users',
-    'Number of active users',
-    ['time_period']
-)
-
-SEARCH_QUERIES = Counter(
-    'telegram_bot_search_queries_total',
-    'Total number of search queries',
-    ['language', 'has_results']
-)
-
-DOCUMENT_OPERATIONS = Counter(
-    'telegram_bot_document_operations_total',
-    'Total number of document operations',
-    ['operation', 'status']
-)
-
-RAG_PROCESSING_TIME = Histogram(
-    'telegram_bot_rag_processing_seconds',
-    'RAG processing time in seconds',
-    ['language']
-)
-
-CACHE_OPERATIONS = Counter(
-    'telegram_bot_cache_operations_total',
-    'Total number of cache operations',
-    ['operation', 'cache_type', 'result']
-)
-
-ERROR_COUNT = Counter(
-    'telegram_bot_errors_total',
-    'Total number of errors',
-    ['error_type', 'component']
-)
+# Глобальный сборщик метрик
+internal_metrics = InternalMetricsCollector()
 
 class MetricsCollector:
     def __init__(self):
@@ -355,50 +381,64 @@ class MetricsCollector:
         """
         Отслеживание HTTP запросов
         """
-        REQUEST_COUNT.labels(method=method, endpoint=endpoint, status=status).inc()
+        internal_metrics.increment_counter("requests", {
+            "method": method,
+            "endpoint": endpoint,
+            "status": status
+        })
     
     def track_search_query(self, language: str, has_results: bool):
         """
         Отслеживание поисковых запросов
         """
-        SEARCH_QUERIES.labels(
-            language=language,
-            has_results=str(has_results).lower()
-        ).inc()
+        internal_metrics.increment_counter("search_queries", {
+            "language": language,
+            "has_results": str(has_results).lower()
+        })
     
     def track_document_operation(self, operation: str, status: str):
         """
         Отслеживание операций с документами
         """
-        DOCUMENT_OPERATIONS.labels(operation=operation, status=status).inc()
+        internal_metrics.increment_counter("document_operations", {
+            "operation": operation,
+            "status": status
+        })
     
     def track_rag_processing(self, language: str, processing_time: float):
         """
         Отслеживание RAG обработки
         """
-        RAG_PROCESSING_TIME.labels(language=language).observe(processing_time)
+        internal_metrics.record_duration("rag_processing", processing_time, {
+            "language": language
+        })
     
     def track_cache_operation(self, operation: str, cache_type: str, result: str):
         """
         Отслеживание операций кэша
         """
-        CACHE_OPERATIONS.labels(
-            operation=operation,
-            cache_type=cache_type,
-            result=result
-        ).inc()
+        internal_metrics.increment_counter("cache_operations", {
+            "operation": operation,
+            "cache_type": cache_type,
+            "result": result
+        })
     
     def track_error(self, error_type: str, component: str):
         """
         Отслеживание ошибок
         """
-        ERROR_COUNT.labels(error_type=error_type, component=component).inc()
+        internal_metrics.increment_counter("errors", {
+            "error_type": error_type,
+            "component": component
+        })
     
     def update_active_users(self, count: int, time_period: str):
         """
         Обновление количества активных пользователей
         """
-        ACTIVE_USERS.labels(time_period=time_period).set(count)
+        internal_metrics.set_gauge("active_users", count, {
+            "time_period": time_period
+        })
 
 # Глобальный сборщик метрик
 metrics = MetricsCollector()
@@ -417,10 +457,10 @@ def track_time(metric_name: str = None):
                 duration = time.time() - start_time
                 
                 if metric_name:
-                    REQUEST_DURATION.labels(
-                        method="async",
-                        endpoint=metric_name
-                    ).observe(duration)
+                    internal_metrics.record_duration("request_duration", duration, {
+                        "method": "async",
+                        "endpoint": metric_name
+                    })
                 
                 return result
             except Exception as e:
@@ -439,18 +479,18 @@ def track_user_action(action: str):
         async def wrapper(*args, **kwargs):
             try:
                 result = await func(*args, **kwargs)
-                REQUEST_COUNT.labels(
-                    method="user_action",
-                    endpoint=action,
-                    status="success"
-                ).inc()
+                internal_metrics.increment_counter("requests", {
+                    "method": "user_action",
+                    "endpoint": action,
+                    "status": "success"
+                })
                 return result
             except Exception as e:
-                REQUEST_COUNT.labels(
-                    method="user_action",
-                    endpoint=action,
-                    status="error"
-                ).inc()
+                internal_metrics.increment_counter("requests", {
+                    "method": "user_action",
+                    "endpoint": action,
+                    "status": "error"
+                })
                 raise
         return wrapper
     return decorator
@@ -917,38 +957,31 @@ class AnalyticsService:
 
 #### Prometheus конфигурация
 ```yaml
-# prometheus.yml
-global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
-
-rule_files:
-  - "alert_rules.yml"
-
-scrape_configs:
-  - job_name: 'telegram-bot'
-    static_configs:
-      - targets: ['localhost:8000']
-    metrics_path: '/metrics'
-    scrape_interval: 10s
-
-  - job_name: 'redis'
-    static_configs:
-      - targets: ['localhost:9121']
-
-  - job_name: 'postgres'
-    static_configs:
-      - targets: ['localhost:9187']
-
-  - job_name: 'node-exporter'
-    static_configs:
-      - targets: ['localhost:9100']
+# internal_monitoring.yml
+monitoring:
+  enabled: true
+  metrics_collection_interval: 15s
+  health_check_interval: 30s
+  
+  endpoints:
+    - name: 'telegram-bot'
+      url: 'http://localhost:8000'
+      metrics_path: '/metrics'
+      check_interval: 10s
+    
+    - name: 'redis'
+      url: 'http://localhost:6379'
+      check_interval: 15s
+    
+    - name: 'postgres'
+      url: 'http://localhost:5432'
+      check_interval: 15s
 
 alerting:
-  alertmanagers:
-    - static_configs:
-        - targets:
-          - alertmanager:9093
+  enabled: true
+  channels:
+    - type: 'webhook'
+      url: 'http://alertmanager:9093/api/v1/alerts'
 ```
 
 #### Alert Rules

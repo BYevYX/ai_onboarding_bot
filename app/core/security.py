@@ -65,12 +65,6 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def generate_telegram_webhook_secret() -> str:
-    """Generate a secure webhook secret for Telegram."""
-    import secrets
-    return secrets.token_urlsafe(32)
-
-
 class SecurityManager:
     """Security manager for handling authentication and authorization."""
     

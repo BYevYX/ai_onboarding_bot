@@ -186,7 +186,6 @@ telegram-onboarding-bot/
 ├── config/                           # Конфигурационные файлы
 │   ├── .env.example                  # Пример переменных окружения
 │   ├── logging.yaml                  # Конфигурация логирования
-│   ├── prometheus.yml                # Конфигурация Prometheus
 │   └── locales/                      # Локализация
 │       ├── ru/                       # Русский язык
 │       ├── en/                       # Английский язык
@@ -197,8 +196,6 @@ telegram-onboarding-bot/
 │   ├── cache/                        # Кэш файлы
 │   └── backups/                      # Резервные копии
 ├── monitoring/                       # Мониторинг
-│   ├── grafana/                      # Конфигурация Grafana
-│   ├── prometheus/                   # Конфигурация Prometheus
 │   └── alerts/                       # Настройки алертов
 ├── requirements/                     # Зависимости
 │   ├── base.txt                      # Базовые зависимости

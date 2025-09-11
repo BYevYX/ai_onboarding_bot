@@ -6,7 +6,7 @@ from typing import List, Optional, Dict, Any
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from pydantic import BaseModel
 
 from app.core.logging import get_logger

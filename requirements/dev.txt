@@ -2,28 +2,28 @@
 -r base.txt
 
 # Разработка и тестирование
-pytest==7.4.3
-pytest-asyncio==0.21.1
-pytest-cov==4.1.0
-pytest-mock==3.12.0
+pytest==8.4.2
+pytest-asyncio==1.1.0
+pytest-cov==6.2.1
+pytest-mock==3.15.0
 
 # Линтеры и форматтеры
-black==23.11.0
-isort==5.12.0
-flake8==6.1.0
-mypy==1.7.1
+black==25.1.0
+isort==6.0.1
+flake8==7.3.0
+mypy==1.17.1
 
 # Pre-commit hooks
-pre-commit==3.6.0
+pre-commit==4.3.0
 
 # Отладка LangChain
-langsmith==0.0.70
-langchain-experimental==0.0.50
+langsmith==0.4.25
+langchain-experimental==0.3.4
 
 # Jupyter для экспериментов
-jupyter==1.0.0
-ipykernel==6.26.0
+jupyter==1.1.1
+ipykernel==6.30.1
 
 # Профилирование
-py-spy==0.3.14
+py-spy==0.4.1
 memory-profiler==0.61.0

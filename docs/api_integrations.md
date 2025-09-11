@@ -4,22 +4,6 @@
 
 ### 1. Telegram Bot API
 
-#### Webhook Configuration
-```python
-# Настройка webhook
-WEBHOOK_URL = "https://your-domain.com/webhook/telegram"
-WEBHOOK_SECRET_TOKEN = "your-secret-token"
-
-# Поддерживаемые типы обновлений
-ALLOWED_UPDATES = [
-    "message",
-    "edited_message", 
-    "callback_query",
-    "inline_query",
-    "chosen_inline_result"
-]
-```
-
 #### Основные методы Telegram API
 ```python
 # Отправка сообщений
@@ -534,14 +518,28 @@ async def detailed_health_check():
 
 ### Metrics Endpoint
 ```python
-from prometheus_client import Counter, Histogram, generate_latest
+# Внутренние метрики (без prometheus)
+class MetricsCollector:
+    def __init__(self):
+        self.request_count = {}
+        self.request_durations = []
+    
+    def increment_request_count(self, method: str, endpoint: str):
+        key = f"{method}:{endpoint}"
+        self.request_count[key] = self.request_count.get(key, 0) + 1
+    
+    def record_request_duration(self, duration: float):
+        self.request_durations.append(duration)
 
-REQUEST_COUNT = Counter('api_requests_total', 'Total API requests', ['method', 'endpoint'])
-REQUEST_DURATION = Histogram('api_request_duration_seconds', 'API request duration')
+metrics_collector = MetricsCollector()
 
 @app.get("/metrics")
 async def get_metrics():
-    return Response(generate_latest(), media_type="text/plain")
+    return {
+        "request_counts": metrics_collector.request_count,
+        "avg_request_duration": sum(metrics_collector.request_durations) / len(metrics_collector.request_durations) if metrics_collector.request_durations else 0,
+        "total_requests": sum(metrics_collector.request_count.values())
+    }
 ```
 
 ## Error Handling

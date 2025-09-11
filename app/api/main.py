@@ -34,15 +34,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.error("Failed to initialize vector store", error=str(e))
     
-    # Setup webhook if configured
-    settings = get_settings()
-    if settings.telegram.webhook_url:
-        try:
-            await telegram_bot.setup_webhook(app)
-            logger.info("Telegram webhook configured")
-        except Exception as e:
-            logger.error("Failed to setup Telegram webhook", error=str(e))
-    
     yield
     
     # Shutdown
@@ -118,12 +109,6 @@ def create_app() -> FastAPI:
     app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
     app.include_router(documents.router, prefix="/api/v1/documents", tags=["Documents"])
     app.include_router(onboarding.router, prefix="/api/v1/onboarding", tags=["Onboarding"])
-    
-    # Add webhook endpoint for Telegram
-    if settings.telegram.webhook_url:
-        from app.bot.bot import telegram_bot
-        # Webhook will be setup in lifespan
-        pass
     
     return app
 

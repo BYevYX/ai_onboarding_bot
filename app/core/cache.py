@@ -4,7 +4,7 @@ Caching utilities using Redis and in-memory cache.
 
 import json
 import pickle
-from typing import Any, Optional, Union
+from typing import Any, Optional
 from functools import wraps
 import asyncio
 
@@ -186,55 +186,3 @@ def cached(
             return sync_wrapper
     
     return decorator
-
-
-class InMemoryCache:
-    """Simple in-memory cache for frequently accessed data."""
-    
-    def __init__(self, max_size: int = 1000):
-        self.max_size = max_size
-        self._cache = {}
-        self._access_order = []
-    
-    def get(self, key: str) -> Optional[Any]:
-        """Get value from memory cache."""
-        if key in self._cache:
-            # Move to end (most recently used)
-            self._access_order.remove(key)
-            self._access_order.append(key)
-            return self._cache[key]
-        return None
-    
-    def set(self, key: str, value: Any):
-        """Set value in memory cache."""
-        if key in self._cache:
-            # Update existing
-            self._cache[key] = value
-            self._access_order.remove(key)
-            self._access_order.append(key)
-        else:
-            # Add new
-            if len(self._cache) >= self.max_size:
-                # Remove least recently used
-                lru_key = self._access_order.pop(0)
-                del self._cache[lru_key]
-            
-            self._cache[key] = value
-            self._access_order.append(key)
-    
-    def delete(self, key: str) -> bool:
-        """Delete value from memory cache."""
-        if key in self._cache:
-            del self._cache[key]
-            self._access_order.remove(key)
-            return True
-        return False
-    
-    def clear(self):
-        """Clear all cached values."""
-        self._cache.clear()
-        self._access_order.clear()
-
-
-# Global in-memory cache instance
-memory_cache = InMemoryCache(max_size=get_settings().cache.max_size)

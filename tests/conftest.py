@@ -66,8 +66,6 @@ def mock_settings():
     settings.redis.max_connections = 10
     
     settings.telegram.bot_token = "test-bot-token"
-    settings.telegram.webhook_url = None
-    settings.telegram.webhook_secret = None
     
     settings.cache.ttl = 3600
     settings.cache.max_size = 1000

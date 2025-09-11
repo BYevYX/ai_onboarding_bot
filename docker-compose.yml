@@ -1,0 +1,200 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: ai_bot_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - ai_bot_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d onboarding_bot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: ai_bot_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
+    ports:
+      - "6379:6379"
+    networks:
+      - ai_bot_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: ai_bot_qdrant
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - ./docker/qdrant/config:/qdrant/config
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    networks:
+      - ai_bot_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # Main Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: ai_bot_app
+    restart: unless-stopped
+    environment:
+      # Database
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_ECHO: "false"
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      
+      # Redis
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      
+      # Qdrant
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      
+      # Service coordination
+      WAIT_FOR_DB: "true"
+      WAIT_FOR_REDIS: "true"
+      WAIT_FOR_QDRANT: "true"
+      RUN_MIGRATIONS: "true"
+      INIT_VECTOR_STORE: "true"
+      
+      # Environment
+      ENVIRONMENT: development
+      
+      # API
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      API_RELOAD: "true"
+      API_DEBUG: "true"
+      
+      # Logging
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - uploads_data:/app/uploads
+    ports:
+      - "8000:8000"
+    networks:
+      - ai_bot_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Telegram Bot (separate service for scaling)
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: ai_bot_telegram
+    restart: unless-stopped
+    environment:
+      # Database
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      
+      # Redis
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      
+      # Qdrant
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      
+      # Service coordination
+      WAIT_FOR_DB: "true"
+      WAIT_FOR_REDIS: "true"
+      WAIT_FOR_QDRANT: "true"
+      RUN_MIGRATIONS: "false"  # Only run migrations in main app
+      INIT_VECTOR_STORE: "false"
+      
+      # Environment
+      ENVIRONMENT: development
+      
+      # Logging
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - uploads_data:/app/uploads
+    networks:
+      - ai_bot_network
+    depends_on:
+      app:
+        condition: service_healthy
+    command: ["python", "main.py", "bot"]
+
+networks:
+  ai_bot_network:
+    driver: bridge
+    name: ai_bot_network
+
+volumes:
+  postgres_data:
+    name: ai_bot_postgres_data
+  redis_data:
+    name: ai_bot_redis_data
+  qdrant_data:
+    name: ai_bot_qdrant_data
+  uploads_data:
+    name: ai_bot_uploads_data

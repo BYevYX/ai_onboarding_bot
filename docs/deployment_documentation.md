@@ -148,7 +148,6 @@ SECRET_KEY=dev-secret-key-change-in-production
 
 # Telegram
 TELEGRAM_BOT_TOKEN=your-dev-bot-token
-TELEGRAM_WEBHOOK_URL=https://your-dev-domain.com/webhook/telegram
 
 # Database
 POSTGRES_DB=telegram_bot_dev
@@ -247,8 +246,6 @@ SECRET_KEY=your-super-secret-production-key
 
 # Telegram
 TELEGRAM_BOT_TOKEN=your-production-bot-token
-TELEGRAM_WEBHOOK_URL=https://your-domain.com/webhook/telegram
-TELEGRAM_WEBHOOK_SECRET=your-webhook-secret
 
 # Database
 POSTGRES_DB=telegram_bot
@@ -273,10 +270,8 @@ GOOGLE_TRANSLATE_API_KEY=your-google-translate-key
 
 # Monitoring
 SENTRY_DSN=your-sentry-dsn
-GRAFANA_PASSWORD=your-grafana-password
 
 # Alerting
-SLACK_WEBHOOK_URL=your-slack-webhook
 TELEGRAM_ALERT_BOT_TOKEN=your-alert-bot-token
 TELEGRAM_ALERT_CHAT_ID=your-alert-chat-id
 
@@ -320,28 +315,7 @@ server {
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
     # Rate Limiting
-    limit_req_zone $binary_remote_addr zone=webhook:10m rate=100r/s;
     limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
-
-    # Telegram Webhook
-    location /webhook/ {
-        limit_req zone=webhook burst=50 nodelay;
-        
-        proxy_pass http://telegram_bot;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # Security
-        proxy_hide_header X-Powered-By;
-        proxy_set_header X-Forwarded-Host $host;
-        
-        # Timeouts
-        proxy_connect_timeout 30s;
-        proxy_send_timeout 30s;
-        proxy_read_timeout 30s;
-    }
 
     # API Endpoints
     location /api/ {
@@ -396,49 +370,6 @@ curl -f http://localhost/health
 ### 1. Настройка мониторинга
 
 #### Prometheus конфигурация
-```yaml
-# monitoring/prometheus/prometheus.yml
-global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
-
-rule_files:
-  - "alert_rules.yml"
-
-scrape_configs:
-  - job_name: 'telegram-bot'
-    static_configs:
-      - targets: ['telegram-bot:8000']
-    metrics_path: '/metrics'
-    scrape_interval: 10s
-
-  - job_name: 'postgres'
-    static_configs:
-      - targets: ['postgres-exporter:9187']
-
-  - job_name: 'redis'
-    static_configs:
-      - targets: ['redis-exporter:9121']
-
-  - job_name: 'node'
-    static_configs:
-      - targets: ['node-exporter:9100']
-
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets:
-          - alertmanager:9093
-```
-
-#### Grafana Dashboard
-```bash
-# Импорт готовых дашбордов
-curl -X POST \
-  http://admin:your-grafana-password@localhost:3000/api/dashboards/db \
-  -H 'Content-Type: application/json' \
-  -d @monitoring/grafana/dashboards/telegram-bot-dashboard.json
-```
 
 ### 2. Настройка алертов
 
@@ -704,9 +635,6 @@ docker-compose logs -t telegram-bot
 
 #### Мониторинг метрик
 ```bash
-# Prometheus метрики
-curl http://localhost:9090/metrics
-
 # Метрики приложения
 curl http://localhost:8000/metrics
 

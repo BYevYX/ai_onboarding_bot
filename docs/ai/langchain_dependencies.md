@@ -136,7 +136,6 @@ structlog==23.2.0
 python-json-logger==2.0.7
 
 # Мониторинг
-prometheus-client==0.19.0
 sentry-sdk[fastapi]==1.38.0
 
 # Валидация и сериализация
