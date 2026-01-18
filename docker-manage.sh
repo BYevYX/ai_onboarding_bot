@@ -37,23 +37,36 @@ check_docker() {
     fi
 }
 
+# Docker Compose command (will be set by check_docker_compose)
+DOCKER_COMPOSE=""
+
 # Function to check if Docker Compose is available
 check_docker_compose() {
-    if ! command -v docker-compose > /dev/null 2>&1; then
-        print_error "Docker Compose is not installed. Please install Docker Compose and try again."
-        exit 1
+    # Check for new docker compose (plugin) first
+    if docker compose version > /dev/null 2>&1; then
+        DOCKER_COMPOSE="docker compose"
+        return 0
     fi
+    
+    # Check for old docker-compose (standalone)
+    if command -v docker-compose > /dev/null 2>&1; then
+        DOCKER_COMPOSE="docker-compose"
+        return 0
+    fi
+    
+    print_error "Docker Compose is not installed. Please install Docker Compose and try again."
+    exit 1
 }
 
 # Development environment functions
 dev_build() {
     print_header "Building Development Environment"
-    docker-compose build --no-cache
+    $DOCKER_COMPOSE build --no-cache
 }
 
 dev_up() {
     print_header "Starting Development Environment"
-    docker-compose up -d
+    $DOCKER_COMPOSE up -d
     print_status "Development environment started successfully!"
     print_status "API available at: http://localhost:8000"
     print_status "API docs available at: http://localhost:8000/docs"
@@ -61,24 +74,24 @@ dev_up() {
 
 dev_down() {
     print_header "Stopping Development Environment"
-    docker-compose down
+    $DOCKER_COMPOSE down
     print_status "Development environment stopped successfully!"
 }
 
 dev_logs() {
     print_header "Showing Development Logs"
-    docker-compose logs -f "${2:-}"
+    $DOCKER_COMPOSE logs -f "${2:-}"
 }
 
 dev_shell() {
     print_header "Opening Shell in Development Container"
-    docker-compose exec app bash
+    $DOCKER_COMPOSE exec app bash
 }
 
 # Production environment functions
 prod_build() {
     print_header "Building Production Environment"
-    docker-compose -f docker-compose.prod.yml build --no-cache
+    $DOCKER_COMPOSE -f docker-compose.prod.yml build --no-cache
 }
 
 prod_up() {
@@ -88,34 +101,34 @@ prod_up() {
         print_warning "Please create .env.prod file with production configuration."
         exit 1
     fi
-    docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d
+    $DOCKER_COMPOSE -f docker-compose.prod.yml --env-file .env.prod up -d
     print_status "Production environment started successfully!"
     print_status "API available at: http://localhost:8000"
 }
 
 prod_down() {
     print_header "Stopping Production Environment"
-    docker-compose -f docker-compose.prod.yml --env-file .env.prod down
+    $DOCKER_COMPOSE -f docker-compose.prod.yml --env-file .env.prod down
     print_status "Production environment stopped successfully!"
 }
 
 prod_logs() {
     print_header "Showing Production Logs"
-    docker-compose -f docker-compose.prod.yml --env-file .env.prod logs -f "${2:-}"
+    $DOCKER_COMPOSE -f docker-compose.prod.yml --env-file .env.prod logs -f "${2:-}"
 }
 
 prod_shell() {
     print_header "Opening Shell in Production Container"
-    docker-compose -f docker-compose.prod.yml --env-file .env.prod exec app bash
+    $DOCKER_COMPOSE -f docker-compose.prod.yml --env-file .env.prod exec app bash
 }
 
 # Database management functions
 db_migrate() {
     print_header "Running Database Migrations"
     if [ "$1" = "prod" ]; then
-        docker-compose -f docker-compose.prod.yml --env-file .env.prod exec app alembic upgrade head
+        $DOCKER_COMPOSE -f docker-compose.prod.yml --env-file .env.prod exec app alembic upgrade head
     else
-        docker-compose exec app alembic upgrade head
+        $DOCKER_COMPOSE exec app alembic upgrade head
     fi
     print_status "Database migrations completed successfully!"
 }
@@ -123,9 +136,9 @@ db_migrate() {
 db_shell() {
     print_header "Opening Database Shell"
     if [ "$1" = "prod" ]; then
-        docker-compose -f docker-compose.prod.yml --env-file .env.prod exec postgres psql -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-onboarding_bot}
+        $DOCKER_COMPOSE -f docker-compose.prod.yml --env-file .env.prod exec postgres psql -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-onboarding_bot}
     else
-        docker-compose exec postgres psql -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-onboarding_bot}
+        $DOCKER_COMPOSE exec postgres psql -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-onboarding_bot}
     fi
 }
 
@@ -133,9 +146,9 @@ db_backup() {
     print_header "Creating Database Backup"
     local backup_file="backup_$(date +%Y%m%d_%H%M%S).sql"
     if [ "$1" = "prod" ]; then
-        docker-compose -f docker-compose.prod.yml --env-file .env.prod exec postgres pg_dump -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-onboarding_bot} > "$backup_file"
+        $DOCKER_COMPOSE -f docker-compose.prod.yml --env-file .env.prod exec -T postgres pg_dump -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-onboarding_bot} > "$backup_file"
     else
-        docker-compose exec postgres pg_dump -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-onboarding_bot} > "$backup_file"
+        $DOCKER_COMPOSE exec -T postgres pg_dump -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-onboarding_bot} > "$backup_file"
     fi
     print_status "Database backup created: $backup_file"
 }
@@ -177,20 +190,20 @@ health_check() {
     fi
     
     echo "Service Status:"
-    docker-compose $env_flag ps
+    $DOCKER_COMPOSE $env_flag ps
     
     echo -e "\nHealth Checks:"
     curl -f http://localhost:8000/health 2>/dev/null && echo -e "\n✅ API Health: OK" || echo -e "\n❌ API Health: FAILED"
     
     # Check database connection
-    if docker-compose $env_flag exec -T postgres pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-onboarding_bot} > /dev/null 2>&1; then
+    if $DOCKER_COMPOSE $env_flag exec -T postgres pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-onboarding_bot} > /dev/null 2>&1; then
         echo "✅ Database: OK"
     else
         echo "❌ Database: FAILED"
     fi
     
     # Check Redis connection
-    if docker-compose $env_flag exec -T redis redis-cli ping > /dev/null 2>&1; then
+    if $DOCKER_COMPOSE $env_flag exec -T redis redis-cli ping > /dev/null 2>&1; then
         echo "✅ Redis: OK"
     else
         echo "❌ Redis: FAILED"
