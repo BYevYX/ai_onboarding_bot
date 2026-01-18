@@ -43,6 +43,8 @@ MANIFEST
 
 # Virtual environments
 .env
+.env.prod
+.env.local
 .venv
 env/
 venv/

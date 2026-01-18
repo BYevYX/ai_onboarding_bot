@@ -19,7 +19,7 @@ services:
     networks:
       - ai_bot_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d onboarding_bot"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-onboarding_bot}"]
       interval: 10s
       timeout: 5s
       retries: 5
