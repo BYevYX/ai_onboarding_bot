@@ -1,5 +1,5 @@
 """
-Main FastAPI application setup.
+Main FastAPI application setup with RAG integration.
 """
 
 from contextlib import asynccontextmanager
@@ -14,7 +14,7 @@ import uvicorn
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.core.exceptions import BaseAppException
-from app.api.routes import documents, users, onboarding, health
+from app.api.routes import documents, users, onboarding, health, rag
 from app.bot.bot import telegram_bot
 
 logger = get_logger("api")
@@ -22,17 +22,47 @@ logger = get_logger("api")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Application lifespan manager."""
+    """Application lifespan manager with RAG initialization."""
     # Startup
-    logger.info("Starting FastAPI application")
+    logger.info("Starting FastAPI application with RAG integration")
     
     # Initialize AI components
     try:
         from app.ai.langchain.vector_store import vector_store
+        from app.ai.rag.hybrid_rag_service import hybrid_rag_service
+        from app.ai.rag.vector_cache_service import vector_cache_service
+        
+        # Initialize vector store
         await vector_store.initialize_collection()
         logger.info("Vector store initialized")
+        
+        # Health check for RAG service
+        health = await hybrid_rag_service.health_check()
+        if health.get("status") == "healthy":
+            logger.info("Hybrid RAG service is healthy")
+        else:
+            logger.warning("Hybrid RAG service health check failed", health=health)
+        
+        # Warm up cache with common queries
+        common_queries = [
+            "что такое компания",
+            "рабочее время",
+            "отпуск",
+            "пропуск",
+            "столовая",
+            "working hours",
+            "vacation policy",
+            "office location"
+        ]
+        
+        await vector_cache_service.warm_up_cache(
+            common_queries=common_queries,
+            user_contexts=[]
+        )
+        logger.info("RAG cache warmed up")
+        
     except Exception as e:
-        logger.error("Failed to initialize vector store", error=str(e))
+        logger.error("Failed to initialize AI components", error=str(e))
     
     yield
     
@@ -49,14 +79,36 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 def create_app() -> FastAPI:
-    """Create FastAPI application."""
+    """Create FastAPI application with RAG integration."""
     configure_logging()
     settings = get_settings()
     
     app = FastAPI(
-        title="Telegram Onboarding Bot API",
-        description="AI-powered employee onboarding system with LangChain/LangGraph",
-        version="0.1.0",
+        title="Telegram Onboarding Bot API with Hybrid RAG",
+        description="""
+        AI-powered employee onboarding system with advanced RAG capabilities:
+        
+        🤖 **Hybrid RAG System**
+        - LangChain integration for document processing
+        - Qdrant vector database for semantic search
+        - OpenAI embeddings and LLM models
+        - Intelligent query complexity analysis
+        - Conversation memory management
+        
+        🚀 **Features**
+        - Multi-language support (Russian, English, Arabic)
+        - Real-time document search and Q&A
+        - Rate limiting and caching
+        - Comprehensive monitoring and analytics
+        - Telegram bot integration
+        
+        📊 **Monitoring**
+        - RAG system health checks
+        - Cache statistics and management
+        - User conversation tracking
+        - Performance metrics
+        """,
+        version="1.0.0",
         docs_url="/docs" if settings.api.debug else None,
         redoc_url="/redoc" if settings.api.debug else None,
         lifespan=lifespan
@@ -109,6 +161,7 @@ def create_app() -> FastAPI:
     app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
     app.include_router(documents.router, prefix="/api/v1/documents", tags=["Documents"])
     app.include_router(onboarding.router, prefix="/api/v1/onboarding", tags=["Onboarding"])
+    app.include_router(rag.router, prefix="/api/v1/rag", tags=["RAG System"])
     
     return app
 

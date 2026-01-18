@@ -1,9 +1,6 @@
 """
-Telegram bot message handlers for employee onboarding.
+Telegram bot message handlers for employee onboarding with hybrid RAG integration.
 """
-
-from typing import Any, Dict, Optional
-import asyncio
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -13,9 +10,9 @@ from aiogram.fsm.state import State, StatesGroup
 from langchain_core.messages import HumanMessage
 
 from app.core.logging import get_logger
-from app.core.exceptions import TelegramBotError
 from app.ai.langchain.workflows import onboarding_workflow, OnboardingState
-from app.ai.langchain.llm_manager import onboarding_llm
+from app.ai.rag.hybrid_rag_service import hybrid_rag_service
+from app.ai.rag.vector_cache_service import vector_cache_service
 
 logger = get_logger("bot.handlers")
 
@@ -309,20 +306,34 @@ async def complete_onboarding_handler(callback: CallbackQuery, state: FSMContext
 async def help_handler(message: Message) -> None:
     """Handle /help command."""
     help_text = """
-🤖 Бот для адаптации сотрудников
+🤖 Бот для адаптации сотрудников с AI-поддержкой
 
-Доступные команды:
+📋 Основные команды:
 /start - Начать процесс адаптации
 /help - Показать эту справку
 /status - Показать текущий статус адаптации
 
-Бот поможет вам:
-• Пройти процесс знакомства с компанией
-• Изучить необходимые документы
-• Получить ответы на вопросы
-• Завершить адаптацию
+🤖 AI-помощник:
+/ask <вопрос> - Задать прямой вопрос AI-помощнику
+/clear_memory - Очистить историю диалога с AI
+/rag_stats - Показать статистику AI-системы
 
-Поддерживаемые языки: Русский, English, العربية
+🔧 Возможности бота:
+• Интеллектуальные ответы на вопросы о компании
+• Семантический поиск по документам
+• Персонализированная адаптация
+• Многоязычная поддержка
+• Кэширование для быстрых ответов
+
+💡 Примеры вопросов:
+• "Какие документы нужны для отпуска?"
+• "Где находится столовая?"
+• "Как работает система пропусков?"
+• "What are the working hours?"
+
+🌍 Поддерживаемые языки: Русский, English, العربية
+
+ℹ️ Просто напишите свой вопрос, и AI-помощник найдет ответ в корпоративных документах!
     """
     
     await message.answer(help_text)
@@ -363,20 +374,168 @@ async def status_handler(message: Message, state: FSMContext) -> None:
         await message.answer("Ошибка при получении статуса.")
 
 
+@router.message(Command("ask"))
+async def ask_handler(message: Message, state: FSMContext) -> None:
+    """Handle direct RAG questions outside of onboarding flow."""
+    try:
+        user_id = message.from_user.id
+        query = message.text.replace("/ask", "").strip()
+        
+        if not query:
+            await message.answer(
+                "Пожалуйста, задайте вопрос после команды /ask\n"
+                "Например: /ask Какие документы нужны для отпуска?"
+            )
+            return
+        
+        # Get user data for context
+        user_data = await state.get_data()
+        user_info = user_data.get("user_info", {})
+        language = user_data.get("language", "ru")
+        
+        # Process query through hybrid RAG
+        rag_result = await hybrid_rag_service.process_query(
+            query=query,
+            user_id=user_id,
+            user_info=user_info,
+            language=language,
+            use_conversation_memory=False  # Use simple mode for direct questions
+        )
+        
+        response = rag_result["answer"]
+        source_docs = rag_result.get("source_documents", [])
+        
+        # Add source information if available
+        if source_docs:
+            response += f"\n\n📚 Источники: {len(source_docs)} документ(ов)"
+        
+        await message.answer(response)
+        
+        logger.info(
+            "Direct RAG query processed",
+            user_id=user_id,
+            query_length=len(query),
+            complexity=rag_result.get("query_complexity"),
+            source_count=len(source_docs)
+        )
+        
+    except Exception as e:
+        logger.error("Ask handler error", error=str(e), user_id=message.from_user.id)
+        await message.answer(
+            "Произошла ошибка при обработке вопроса. Попробуйте позже или обратитесь к HR."
+        )
+
+
+@router.message(Command("clear_memory"))
+async def clear_memory_handler(message: Message) -> None:
+    """Clear user's conversation memory."""
+    try:
+        user_id = message.from_user.id
+        
+        # Clear hybrid RAG memory
+        success = await hybrid_rag_service.clear_user_memory(user_id)
+        
+        # Clear cache
+        await vector_cache_service.invalidate_user_cache(user_id)
+        
+        if success:
+            await message.answer(
+                "✅ История диалога очищена.\n"
+                "✅ Conversation history cleared.\n"
+                "✅ تم مسح تاريخ المحادثة."
+            )
+        else:
+            await message.answer(
+                "ℹ️ История диалога уже пуста.\n"
+                "ℹ️ Conversation history is already empty.\n"
+                "ℹ️ تاريخ المحادثة فارغ بالفعل."
+            )
+        
+        logger.info("User memory cleared", user_id=user_id)
+        
+    except Exception as e:
+        logger.error("Clear memory error", error=str(e), user_id=message.from_user.id)
+        await message.answer("Произошла ошибка при очистке памяти.")
+
+
+@router.message(Command("rag_stats"))
+async def rag_stats_handler(message: Message) -> None:
+    """Show RAG system statistics."""
+    try:
+        user_id = message.from_user.id
+        
+        # Get user conversation history
+        history = await hybrid_rag_service.get_user_conversation_history(user_id)
+        
+        # Get cache stats
+        cache_stats = await vector_cache_service.get_cache_stats()
+        
+        # Get RAG health
+        health = await hybrid_rag_service.health_check()
+        
+        stats_text = f"""📊 RAG System Statistics
+
+👤 Your Stats:
+• Conversation messages: {len(history)}
+• Active conversations: {cache_stats.get('key_counts', {}).get('user_context', 0)}
+
+🔧 System Health:
+• Status: {health.get('status', 'unknown')}
+• Vector DB points: {health.get('vector_store', {}).get('points_count', 0)}
+• LLM Model: {health.get('llm', {}).get('model', 'unknown')}
+
+💾 Cache Stats:
+• Search cache: {cache_stats.get('key_counts', {}).get('search', 0)} entries
+• Embedding cache: {cache_stats.get('key_counts', {}).get('embedding', 0)} entries
+• Memory usage: {cache_stats.get('redis_info', {}).get('used_memory', 'unknown')}
+"""
+        
+        await message.answer(stats_text)
+        
+    except Exception as e:
+        logger.error("RAG stats error", error=str(e), user_id=message.from_user.id)
+        await message.answer("Произошла ошибка при получении статистики.")
+
+
 @router.message()
 async def default_handler(message: Message, state: FSMContext) -> None:
-    """Handle all other messages."""
+    """Handle all other messages with enhanced RAG support."""
     try:
         current_state = await state.get_state()
+        user_id = message.from_user.id
         
         if current_state == OnboardingStates.COMPLETED:
+            # For completed users, provide direct RAG assistance
+            if message.text and len(message.text.strip()) > 3:
+                user_data = await state.get_data()
+                user_info = user_data.get("user_info", {})
+                language = user_data.get("language", "ru")
+                
+                try:
+                    rag_result = await hybrid_rag_service.process_query(
+                        query=message.text,
+                        user_id=user_id,
+                        user_info=user_info,
+                        language=language,
+                        use_conversation_memory=True
+                    )
+                    
+                    response = rag_result["answer"]
+                    await message.answer(response)
+                    return
+                    
+                except Exception as rag_error:
+                    logger.error("RAG processing failed in default handler", error=str(rag_error))
+            
             await message.answer(
                 "Ваша адаптация завершена! Если у вас есть дополнительные вопросы, "
-                "обратитесь к HR или вашему руководителю."
+                "используйте команду /ask или обратитесь к HR."
             )
+            
         elif current_state is None:
             await message.answer(
-                "Добро пожаловать! Используйте /start для начала процесса адаптации."
+                "Добро пожаловать! Используйте /start для начала процесса адаптации "
+                "или /ask для прямых вопросов."
             )
         else:
             # Forward to appropriate handler based on state

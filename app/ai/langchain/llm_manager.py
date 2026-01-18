@@ -1,25 +1,78 @@
 """
-LLM Manager for handling OpenAI models through LangChain.
+LLM Manager for handling OpenAI models through LangChain with RAG support.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain.chains import LLMChain
+from langchain.prompts import PromptTemplate, ChatPromptTemplate
+from langchain.callbacks import AsyncCallbackHandler
+from langchain.schema import LLMResult
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.cache import cached
 from app.core.exceptions import LLMResponseError, EmbeddingGenerationError
 
 logger = get_logger("ai.llm")
 
 
+class RAGCallbackHandler(AsyncCallbackHandler):
+    """Custom callback handler for RAG operations monitoring."""
+    
+    def __init__(self, user_id: Optional[int] = None):
+        self.user_id = user_id
+        self.start_time = None
+        self.tokens_used = 0
+    
+    async def on_llm_start(self, serialized: Dict[str, Any], prompts: List[str], **kwargs) -> None:
+        """Called when LLM starts running."""
+        import time
+        self.start_time = time.time()
+        logger.debug(
+            "LLM chain started",
+            user_id=self.user_id,
+            prompt_count=len(prompts),
+            model=serialized.get("name", "unknown")
+        )
+    
+    async def on_llm_end(self, response: LLMResult, **kwargs) -> None:
+        """Called when LLM ends running."""
+        import time
+        if self.start_time:
+            duration = time.time() - self.start_time
+            
+            # Extract token usage if available
+            if response.llm_output and "token_usage" in response.llm_output:
+                self.tokens_used = response.llm_output["token_usage"].get("total_tokens", 0)
+            
+            logger.info(
+                "LLM chain completed",
+                user_id=self.user_id,
+                duration=duration,
+                tokens_used=self.tokens_used,
+                generations_count=len(response.generations)
+            )
+    
+    async def on_llm_error(self, error: Union[Exception, KeyboardInterrupt], **kwargs) -> None:
+        """Called when LLM errors."""
+        logger.error(
+            "LLM chain error",
+            user_id=self.user_id,
+            error=str(error),
+            error_type=type(error).__name__
+        )
+
+
 class LLMManager:
-    """Manager for LLM operations using LangChain."""
+    """Manager for LLM operations using LangChain with RAG support."""
     
     def __init__(self):
         self.settings = get_settings()
         self._chat_model: Optional[ChatOpenAI] = None
         self._embeddings: Optional[OpenAIEmbeddings] = None
+        self._rag_chains: Dict[str, LLMChain] = {}
     
     def get_chat_model(self, **kwargs) -> ChatOpenAI:
         """Get ChatOpenAI model instance."""
@@ -42,21 +95,106 @@ class LLMManager:
             )
         return self._embeddings
     
+    def get_rag_chain(
+        self,
+        chain_type: str = "default",
+        user_id: Optional[int] = None
+    ) -> LLMChain:
+        """Get or create RAG chain for specific use case."""
+        if chain_type not in self._rag_chains:
+            self._rag_chains[chain_type] = self._create_rag_chain(chain_type, user_id)
+        return self._rag_chains[chain_type]
+    
+    def _create_rag_chain(self, chain_type: str, user_id: Optional[int] = None) -> LLMChain:
+        """Create RAG chain based on type."""
+        llm = self.get_chat_model()
+        callback_handler = RAGCallbackHandler(user_id=user_id)
+        
+        if chain_type == "simple_qa":
+            prompt = PromptTemplate(
+                input_variables=["context", "question"],
+                template="""Используй следующий контекст для ответа на вопрос.
+                Если информации недостаточно, честно скажи об этом.
+                
+                Контекст:
+                {context}
+                
+                Вопрос: {question}
+                
+                Ответ:"""
+            )
+        elif chain_type == "conversational":
+            prompt = PromptTemplate(
+                input_variables=["context", "chat_history", "question"],
+                template="""Ты - корпоративный помощник. Используй контекст и историю диалога для ответа.
+                
+                Контекст:
+                {context}
+                
+                История диалога:
+                {chat_history}
+                
+                Текущий вопрос: {question}
+                
+                Ответ:"""
+            )
+        elif chain_type == "multilingual":
+            prompt = PromptTemplate(
+                input_variables=["context", "question", "language"],
+                template="""Answer the question using the provided context in the specified language.
+                
+                Context:
+                {context}
+                
+                Question: {question}
+                Language: {language}
+                
+                Answer:"""
+            )
+        else:  # default
+            prompt = PromptTemplate(
+                input_variables=["context", "question"],
+                template="""Ты - корпоративный помощник для адаптации сотрудников.
+                Используй предоставленный контекст для ответа на вопрос.
+                
+                Контекст:
+                {context}
+                
+                Вопрос: {question}
+                
+                Ответ:"""
+            )
+        
+        return LLMChain(
+            llm=llm,
+            prompt=prompt,
+            callbacks=[callback_handler],
+            verbose=False
+        )
+    
     async def generate_response(
         self,
         messages: List[BaseMessage],
+        user_id: Optional[int] = None,
         **kwargs
     ) -> str:
         """Generate response from chat model."""
         try:
             chat_model = self.get_chat_model(**kwargs)
-            response = await chat_model.ainvoke(messages)
+            
+            # Add callback handler if user_id provided
+            if user_id:
+                callback_handler = RAGCallbackHandler(user_id=user_id)
+                kwargs.setdefault('callbacks', []).append(callback_handler)
+            
+            response = await chat_model.ainvoke(messages, **kwargs)
             
             logger.info(
                 "LLM response generated",
                 model=self.settings.openai.model,
                 message_count=len(messages),
-                response_length=len(response.content)
+                response_length=len(response.content),
+                user_id=user_id
             )
             
             return response.content
@@ -65,10 +203,55 @@ class LLMManager:
             logger.error(
                 "LLM response generation failed",
                 error=str(e),
-                model=self.settings.openai.model
+                model=self.settings.openai.model,
+                user_id=user_id
             )
             raise LLMResponseError(
                 model=self.settings.openai.model,
+                reason=str(e)
+            )
+    
+    @cached(ttl=1800, key_prefix="llm_rag_response")  # Cache for 30 minutes
+    async def generate_rag_response(
+        self,
+        context: str,
+        question: str,
+        chain_type: str = "default",
+        user_id: Optional[int] = None,
+        **kwargs
+    ) -> str:
+        """Generate RAG response with caching."""
+        try:
+            chain = self.get_rag_chain(chain_type, user_id)
+            
+            chain_input = {
+                "context": context,
+                "question": question,
+                **kwargs
+            }
+            
+            response = await chain.arun(**chain_input)
+            
+            logger.info(
+                "RAG response generated",
+                chain_type=chain_type,
+                context_length=len(context),
+                question_length=len(question),
+                response_length=len(response),
+                user_id=user_id
+            )
+            
+            return response
+            
+        except Exception as e:
+            logger.error(
+                "RAG response generation failed",
+                error=str(e),
+                chain_type=chain_type,
+                user_id=user_id
+            )
+            raise LLMResponseError(
+                model=f"rag_chain_{chain_type}",
                 reason=str(e)
             )
     

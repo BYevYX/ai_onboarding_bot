@@ -1,8 +1,7 @@
 """
-Main Telegram bot setup and configuration.
+Main Telegram bot setup and configuration with RAG middleware integration.
 """
 
-import asyncio
 from typing import Optional
 
 from aiogram import Bot, Dispatcher
@@ -14,6 +13,11 @@ import redis.asyncio as redis
 from app.core.config import get_settings
 from app.core.logging import get_logger, configure_logging
 from app.bot.handlers import router
+from app.bot.middleware import (
+    RAGRateLimitMiddleware,
+    RAGMonitoringMiddleware,
+    RAGCacheWarmupMiddleware
+)
 from app.core.exceptions import TelegramBotError
 
 logger = get_logger("bot")
@@ -38,7 +42,7 @@ class TelegramBot:
         return self.bot
     
     async def create_dispatcher(self) -> Dispatcher:
-        """Create dispatcher with Redis storage."""
+        """Create dispatcher with Redis storage and RAG middleware."""
         if self.dp is None:
             # Create Redis storage for FSM
             redis_client = redis.from_url(self.settings.redis.url)
@@ -46,6 +50,15 @@ class TelegramBot:
             
             # Create dispatcher
             self.dp = Dispatcher(storage=self.redis_storage)
+            
+            # Add RAG middleware (order matters!)
+            self.dp.message.middleware(RAGCacheWarmupMiddleware())
+            self.dp.message.middleware(RAGRateLimitMiddleware())
+            self.dp.message.middleware(RAGMonitoringMiddleware())
+            
+            # Also add to callback queries
+            self.dp.callback_query.middleware(RAGRateLimitMiddleware())
+            self.dp.callback_query.middleware(RAGMonitoringMiddleware())
             
             # Include routers
             self.dp.include_router(router)
@@ -57,16 +70,46 @@ class TelegramBot:
         return self.dp
     
     async def _on_startup(self) -> None:
-        """Bot startup handler."""
-        logger.info("Bot starting up")
+        """Bot startup handler with RAG initialization."""
+        logger.info("Bot starting up with RAG integration")
         
         # Initialize AI components
         try:
             from app.ai.langchain.vector_store import vector_store
+            from app.ai.rag.hybrid_rag_service import hybrid_rag_service
+            from app.ai.rag.vector_cache_service import vector_cache_service
+            
+            # Initialize vector store
             await vector_store.initialize_collection()
             logger.info("Vector store initialized")
+            
+            # Health check for RAG service
+            health = await hybrid_rag_service.health_check()
+            if health.get("status") == "healthy":
+                logger.info("Hybrid RAG service is healthy")
+            else:
+                logger.warning("Hybrid RAG service health check failed", health=health)
+            
+            # Warm up cache with common queries
+            common_queries = [
+                "что такое компания",
+                "рабочее время",
+                "отпуск",
+                "пропуск",
+                "столовая",
+                "working hours",
+                "vacation policy",
+                "office location"
+            ]
+            
+            await vector_cache_service.warm_up_cache(
+                common_queries=common_queries,
+                user_contexts=[]
+            )
+            logger.info("Cache warmed up with common queries")
+            
         except Exception as e:
-            logger.error("Failed to initialize vector store", error=str(e))
+            logger.error("Failed to initialize AI components", error=str(e))
         
         # Set bot commands
         bot = await self.create_bot()
@@ -89,17 +132,20 @@ class TelegramBot:
         logger.info("Bot shutdown completed")
     
     async def _set_bot_commands(self, bot: Bot) -> None:
-        """Set bot commands menu."""
+        """Set bot commands menu with RAG commands."""
         from aiogram.types import BotCommand
         
         commands = [
             BotCommand(command="start", description="Начать процесс адаптации"),
             BotCommand(command="help", description="Показать справку"),
             BotCommand(command="status", description="Показать статус адаптации"),
+            BotCommand(command="ask", description="Задать вопрос AI-помощнику"),
+            BotCommand(command="clear_memory", description="Очистить историю диалога"),
+            BotCommand(command="rag_stats", description="Статистика AI-системы"),
         ]
         
         await bot.set_my_commands(commands)
-        logger.info("Bot commands set", commands_count=len(commands))
+        logger.info("Bot commands set with RAG integration", commands_count=len(commands))
     
     async def start_polling(self) -> None:
         """Start bot in polling mode."""

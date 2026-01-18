@@ -1,5 +1,5 @@
 """
-LangGraph workflows for employee onboarding processes.
+LangGraph workflows for employee onboarding processes with hybrid RAG integration.
 """
 
 from typing import Any, Dict, List, Optional, TypedDict
@@ -12,6 +12,8 @@ from langchain_core.documents import Document
 from app.core.logging import get_logger
 from app.ai.langchain.llm_manager import onboarding_llm
 from app.ai.langchain.vector_store import vector_store
+from app.ai.rag.hybrid_rag_service import hybrid_rag_service
+from app.ai.rag.vector_cache_service import vector_cache_service
 
 logger = get_logger("ai.workflows")
 
@@ -211,8 +213,8 @@ class OnboardingWorkflow:
         return state
     
     async def _questions_answers_node(self, state: OnboardingState) -> OnboardingState:
-        """Q&A node - answer user questions."""
-        logger.info("Processing Q&A node", user_id=state["user_id"])
+        """Q&A node - answer user questions using hybrid RAG."""
+        logger.info("Processing Q&A node with hybrid RAG", user_id=state["user_id"])
         
         # Get the last user message
         user_messages = [msg for msg in state["messages"] if isinstance(msg, HumanMessage)]
@@ -231,27 +233,72 @@ class OnboardingWorkflow:
         
         last_question = user_messages[-1].content
         
-        # Search for relevant context
+        # Cache user context for better RAG performance
+        await vector_cache_service.cache_user_context(
+            user_id=state["user_id"],
+            context_data={
+                "user_info": state["user_info"],
+                "language": state["language"],
+                "stage": state["stage"],
+                "questions_asked": state["questions_asked"],
+                "documents_reviewed": state["documents_reviewed"]
+            }
+        )
+        
+        # Use hybrid RAG service for processing
         try:
-            search_results = await vector_store.similarity_search(
+            rag_result = await hybrid_rag_service.process_query(
                 query=last_question,
-                k=3,
-                score_threshold=0.7
+                user_id=state["user_id"],
+                user_info=state["user_info"],
+                language=state["language"],
+                use_conversation_memory=True
             )
             
-            context = "\n".join([doc.page_content for doc, score in search_results])
-            if context:
-                state["context"] = context
+            response = rag_result["answer"]
+            state["context"] = rag_result.get("context", "")
+            
+            # Log RAG processing details
+            logger.info(
+                "Hybrid RAG processing completed",
+                user_id=state["user_id"],
+                query_complexity=rag_result.get("query_complexity"),
+                processing_method=rag_result.get("processing_method"),
+                source_docs_count=len(rag_result.get("source_documents", []))
+            )
+            
         except Exception as e:
-            logger.error("Context search failed", error=str(e))
-        
-        # Generate response
-        response = await onboarding_llm.generate_onboarding_response(
-            user_message=last_question,
-            context=state.get("context"),
-            language=state["language"],
-            user_info=state["user_info"]
-        )
+            logger.error("Hybrid RAG processing failed, falling back to traditional method", error=str(e))
+            
+            # Fallback to traditional approach
+            try:
+                search_results = await vector_store.similarity_search(
+                    query=last_question,
+                    k=3,
+                    score_threshold=0.7
+                )
+                
+                context = "\n".join([doc.page_content for doc, score in search_results])
+                if context:
+                    state["context"] = context
+                
+                response = await onboarding_llm.generate_onboarding_response(
+                    user_message=last_question,
+                    context=state.get("context"),
+                    language=state["language"],
+                    user_info=state["user_info"]
+                )
+                
+            except Exception as fallback_error:
+                logger.error("Fallback processing also failed", error=str(fallback_error))
+                
+                # Final fallback - simple response
+                if state["language"] == "ru":
+                    response = "Извините, произошла ошибка при обработке вашего вопроса. Попробуйте переформулировать или обратитесь к HR."
+                elif state["language"] == "en":
+                    response = "Sorry, there was an error processing your question. Please try rephrasing or contact HR."
+                else:
+                    response = "عذراً، حدث خطأ في معالجة سؤالك. يرجى إعادة الصياغة أو الاتصال بالموارد البشرية."
         
         state["messages"].append(SystemMessage(content=response))
         state["stage"] = OnboardingStage.QUESTIONS_ANSWERS.value
