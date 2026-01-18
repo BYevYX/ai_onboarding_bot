@@ -91,7 +91,13 @@ dev_shell() {
 # Production environment functions
 prod_build() {
     print_header "Building Production Environment"
-    $DOCKER_COMPOSE -f docker-compose.prod.yml build --no-cache
+    if [ ! -f .env.prod ]; then
+        print_error "Production environment file (.env.prod) not found!"
+        print_warning "Please create .env.prod file with production configuration."
+        print_warning "Example: cp .env.prod.example .env.prod"
+        exit 1
+    fi
+    $DOCKER_COMPOSE -f docker-compose.prod.yml --env-file .env.prod build --no-cache
 }
 
 prod_up() {
