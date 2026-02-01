@@ -1,3 +1,3 @@
 """
-Telegram bot components for employee onboarding.
+Bot module.
 """

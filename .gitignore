@@ -1,14 +1,12 @@
-# Environment files
-.env
-.env.local
-.env.prod
-.venv
-
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# C extensions
 *.so
+
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -25,97 +23,54 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
 
-# Virtual environments
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
+# PyInstaller
+*.manifest
+*.spec
 
-# Testing
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
 .tox/
+.nox/
 .coverage
 .coverage.*
 .cache
-.pytest_cache/
-htmlcov/
-.nox/
+nosetests.xml
 coverage.xml
 *.cover
+*.py,cover
 .hypothesis/
+.pytest_cache/
 
-# Jupyter Notebook
-.ipynb_checkpoints
+# Translations
+*.mo
+*.pot
 
-# pyenv
-.python-version
+# Environments
+.env
+.env.*
+!.env.example
+.venv
+venv/
+ENV/
+env/
 
-# Database
-*.db
-*.sqlite3
-
-# Logs
-logs/
-*.log
-
-# Runtime data
-pids/
-*.pid
-*.seed
-*.pid.lock
-
-# Uploads and temporary files
-uploads/
-tmp/
-temp/
-
-# Docker volumes and data
-postgres_data/
-redis_data/
-qdrant_data/
-uploads_data/
-
-# SSL certificates
-docker/nginx/ssl/*.pem
-docker/nginx/ssl/*.key
-docker/nginx/ssl/*.crt
-docker/nginx/ssl/*.csr
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# IDE
-.vscode/
+# IDEs
 .idea/
-*.sublime-project
-*.sublime-workspace
+.vscode/
 *.swp
 *.swo
 *~
 
-# Backup files
-*.bak
-*.backup
-*.old
-backup_*.sql
+# OS
+.DS_Store
+Thumbs.db
 
-# Local configuration overrides
-docker-compose.override.yml
-.env.override
-
-# Monitoring data
-monitoring/
-
-# Node modules (if any)
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# Project specific
+uploads/*
+!uploads/.gitkeep
+*.log

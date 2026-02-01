@@ -1,151 +1,22 @@
-# Docker ignore file for AI Bot application
-
-# Git
 .git
 .gitignore
-.gitattributes
-
-# Documentation
-*.md
-docs/
-README.md
-DOCKER.md
-
-# Development files
-.vscode/
-.idea/
+.env
+.env.*
+!.env.example
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.venv
+venv
+ENV
+env
+.idea
+.vscode
 *.swp
 *.swo
-*~
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Virtual environments
-.env
-.env.prod
-.env.local
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Testing
-.tox/
-.coverage
-.coverage.*
-.cache
-.pytest_cache/
-htmlcov/
-.nox/
-coverage.xml
-*.cover
-.hypothesis/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# pyenv
-.python-version
-
-# Environments
-.env.local
-.env.development
-.env.test
-.env.production
-
-# Database
-*.db
-*.sqlite3
-
-# Logs
-logs/
-*.log
-
-# Runtime data
-pids/
-*.pid
-*.seed
-*.pid.lock
-
-# Uploads and temporary files
-uploads/
-tmp/
-temp/
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Docker files (don't copy into container)
-Dockerfile*
-docker-compose*.yml
-.dockerignore
-
-# CI/CD
-.github/
-.gitlab-ci.yml
-.travis.yml
-.circleci/
-
-# IDE
-*.sublime-project
-*.sublime-workspace
-
-# Backup files
-*.bak
-*.backup
-*.old
-
-# Local configuration
-.env.local
-config.local.*
-
-# Node modules (if any)
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-
-# SSL certificates
-*.pem
-*.key
-*.crt
-*.csr
-
-# Terraform (if used for infrastructure)
-*.tfstate
-*.tfstate.*
-.terraform/
-
-# Kubernetes (if used)
-*.yaml.bak
-kustomization.yaml
+uploads/*
+!uploads/.gitkeep
+README.md

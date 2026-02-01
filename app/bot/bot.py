@@ -1,8 +1,6 @@
 """
-Main Telegram bot setup and configuration with RAG middleware integration.
+Simplified Telegram bot setup.
 """
-
-from typing import Optional
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -11,172 +9,68 @@ from aiogram.fsm.storage.redis import RedisStorage
 import redis.asyncio as redis
 
 from app.core.config import get_settings
-from app.core.logging import get_logger, configure_logging
+from app.core.logging import get_logger
 from app.bot.handlers import router
-from app.bot.middleware import (
-    RAGRateLimitMiddleware,
-    RAGMonitoringMiddleware,
-    RAGCacheWarmupMiddleware
-)
-from app.core.exceptions import TelegramBotError
+from app.ai import vector_store
 
 logger = get_logger("bot")
 
 
-class TelegramBot:
-    """Telegram bot manager."""
-    
-    def __init__(self):
-        self.settings = get_settings()
-        self.bot: Optional[Bot] = None
-        self.dp: Optional[Dispatcher] = None
-        self.redis_storage: Optional[RedisStorage] = None
-    
-    async def create_bot(self) -> Bot:
-        """Create bot instance."""
-        if self.bot is None:
-            self.bot = Bot(
-                token=self.settings.telegram.bot_token,
-                default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-            )
-        return self.bot
-    
-    async def create_dispatcher(self) -> Dispatcher:
-        """Create dispatcher with Redis storage and RAG middleware."""
-        if self.dp is None:
-            # Create Redis storage for FSM
-            redis_client = redis.from_url(self.settings.redis.url)
-            self.redis_storage = RedisStorage(redis_client)
-            
-            # Create dispatcher
-            self.dp = Dispatcher(storage=self.redis_storage)
-            
-            # Add RAG middleware (order matters!)
-            self.dp.message.middleware(RAGCacheWarmupMiddleware())
-            self.dp.message.middleware(RAGRateLimitMiddleware())
-            self.dp.message.middleware(RAGMonitoringMiddleware())
-            
-            # Also add to callback queries
-            self.dp.callback_query.middleware(RAGRateLimitMiddleware())
-            self.dp.callback_query.middleware(RAGMonitoringMiddleware())
-            
-            # Include routers
-            self.dp.include_router(router)
-            
-            # Add startup and shutdown handlers
-            self.dp.startup.register(self._on_startup)
-            self.dp.shutdown.register(self._on_shutdown)
-        
-        return self.dp
-    
-    async def _on_startup(self) -> None:
-        """Bot startup handler with RAG initialization."""
-        logger.info("Bot starting up with RAG integration")
-        
-        # Initialize AI components
-        try:
-            from app.ai.langchain.vector_store import vector_store
-            from app.ai.rag.hybrid_rag_service import hybrid_rag_service
-            from app.ai.rag.vector_cache_service import vector_cache_service
-            
-            # Initialize vector store
-            await vector_store.initialize_collection()
-            logger.info("Vector store initialized")
-            
-            # Health check for RAG service
-            health = await hybrid_rag_service.health_check()
-            if health.get("status") == "healthy":
-                logger.info("Hybrid RAG service is healthy")
-            else:
-                logger.warning("Hybrid RAG service health check failed", health=health)
-            
-            # Warm up cache with common queries
-            common_queries = [
-                "что такое компания",
-                "рабочее время",
-                "отпуск",
-                "пропуск",
-                "столовая",
-                "working hours",
-                "vacation policy",
-                "office location"
-            ]
-            
-            await vector_cache_service.warm_up_cache(
-                common_queries=common_queries,
-                user_contexts=[]
-            )
-            logger.info("Cache warmed up with common queries")
-            
-        except Exception as e:
-            logger.error("Failed to initialize AI components", error=str(e))
-        
-        # Set bot commands
-        bot = await self.create_bot()
-        await self._set_bot_commands(bot)
-        
-        logger.info("Bot startup completed")
-    
-    async def _on_shutdown(self) -> None:
-        """Bot shutdown handler."""
-        logger.info("Bot shutting down")
-        
-        # Close Redis storage
-        if self.redis_storage:
-            await self.redis_storage.close()
-        
-        # Close bot session
-        if self.bot:
-            await self.bot.session.close()
-        
-        logger.info("Bot shutdown completed")
-    
-    async def _set_bot_commands(self, bot: Bot) -> None:
-        """Set bot commands menu with RAG commands."""
-        from aiogram.types import BotCommand
-        
-        commands = [
-            BotCommand(command="start", description="Начать процесс адаптации"),
-            BotCommand(command="help", description="Показать справку"),
-            BotCommand(command="status", description="Показать статус адаптации"),
-            BotCommand(command="ask", description="Задать вопрос AI-помощнику"),
-            BotCommand(command="clear_memory", description="Очистить историю диалога"),
-            BotCommand(command="rag_stats", description="Статистика AI-системы"),
-        ]
-        
-        await bot.set_my_commands(commands)
-        logger.info("Bot commands set with RAG integration", commands_count=len(commands))
-    
-    async def start_polling(self) -> None:
-        """Start bot in polling mode."""
-        try:
-            bot = await self.create_bot()
-            dp = await self.create_dispatcher()
-            
-            logger.info("Starting bot in polling mode")
-            await dp.start_polling(bot)
-            
-        except Exception as e:
-            logger.error("Polling mode failed", error=str(e))
-            raise TelegramBotError(
-                message=f"Failed to start polling: {str(e)}",
-                error_code="POLLING_FAILED"
-            )
+async def create_bot() -> Bot:
+    """Create bot instance."""
+    settings = get_settings()
+    return Bot(
+        token=settings.telegram_bot_token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
 
 
-# Global bot instance
-telegram_bot = TelegramBot()
+async def create_dispatcher() -> Dispatcher:
+    """Create dispatcher with Redis storage."""
+    settings = get_settings()
+    
+    # Create Redis storage for FSM
+    redis_client = redis.from_url(settings.redis_url)
+    storage = RedisStorage(redis_client)
+    
+    # Create dispatcher
+    dp = Dispatcher(storage=storage)
+    
+    # Include handlers
+    dp.include_router(router)
+    
+    return dp
 
 
-async def run_bot_polling():
-    """Run bot in polling mode."""
-    configure_logging()
+async def on_startup() -> None:
+    """Startup handler."""
+    logger.info("Bot starting up...")
+    
+    # Initialize vector store
+    try:
+        await vector_store.initialize_collection()
+        logger.info("Vector store initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize vector store: {e}")
+
+
+async def on_shutdown() -> None:
+    """Shutdown handler."""
+    logger.info("Bot shutting down...")
+
+
+async def run_bot() -> None:
+    """Run the bot in polling mode."""
+    bot = await create_bot()
+    dp = await create_dispatcher()
+    
+    # Register startup/shutdown handlers
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
+    
+    logger.info("Starting bot in polling mode")
     
     try:
-        await telegram_bot.start_polling()
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
-    except Exception as e:
-        logger.error("Bot crashed", error=str(e))
-        raise
-
+        await dp.start_polling(bot)
+    finally:
+        await bot.session.close()

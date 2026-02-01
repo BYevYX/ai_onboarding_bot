@@ -1,3 +1,3 @@
 """
-Core application components including configuration, logging, and security.
+Core module - configuration and logging.
 """
