@@ -1,4 +1,5 @@
-version: '3.8'
+# Docker Compose для RAG Telegram Bot
+# Запуск: docker compose up -d
 
 services:
   # Main bot application
@@ -13,25 +14,12 @@ services:
     volumes:
       - ./uploads:/app/uploads
     depends_on:
-      - qdrant
-      - redis
+      redis:
+        condition: service_started
     networks:
       - bot_network
 
-  # Qdrant vector database
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: qdrant
-    restart: unless-stopped
-    ports:
-      - "6333:6333"
-    volumes:
-      - qdrant_data:/qdrant/storage
-      - ./docker/qdrant/config/config.yaml:/qdrant/config/production.yaml:ro
-    networks:
-      - bot_network
-
-  # Redis for FSM state storage
+  # Redis for FSM state storage (опционально, бот работает и без него)
   redis:
     image: redis:7-alpine
     container_name: redis
@@ -40,15 +28,18 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
-    command: redis-server /usr/local/etc/redis/redis.conf
+    command: redis-server --appendonly yes
     networks:
       - bot_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 networks:
   bot_network:
     driver: bridge
 
 volumes:
-  qdrant_data:
   redis_data:

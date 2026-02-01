@@ -37,39 +37,84 @@ cp .env.example .env
 Заполните `.env`:
 - `TELEGRAM_BOT_TOKEN` - токен бота от @BotFather
 - `OPENAI_API_KEY` - API ключ OpenAI
+- `QDRANT_URL` и `QDRANT_API_KEY` - для Qdrant Cloud (опционально)
 
 ### 2. Запуск через Docker
 
 ```bash
-docker-compose up -d
+# Docker Compose v2+ (рекомендуется)
+docker compose up -d
+
+# Просмотр логов
+docker compose logs -f bot
+
+# Остановка
+docker compose down
 ```
 
 ### 3. Использование
 
-1. Отправьте боту документ (PDF, DOCX, TXT)
-2. Задайте вопрос по документу
-3. Получите ответ на основе содержимого документов
+1. Отправьте боту команду /start
+2. Загрузите документ (PDF, DOCX, TXT)
+3. Задайте вопрос по документу
+4. Получите ответ на основе содержимого документов
 
 ## Команды бота
 
-- `/start` - Начать работу
+- `/start` - Главное меню с кнопками
 - `/help` - Справка
-- `/ask <вопрос>` - Задать вопрос
 - `/status` - Статус системы
+- `/ask` - Задать вопрос
+
+## Конфигурация
+
+### Qdrant Cloud (рекомендуется для продакшена)
+
+```env
+QDRANT_URL=https://your-cluster.region.cloud.qdrant.io
+QDRANT_API_KEY=your_api_key
+```
+
+### Локальный Qdrant (для разработки)
+
+```env
+QDRANT_URL=http://localhost:6333
+QDRANT_API_KEY=
+```
 
 ## Зависимости
 
 - Python 3.11+
 - Qdrant (vector database)
-- Redis (FSM storage)
+- Redis (FSM storage, опционально)
 - OpenAI API
 
 ## Разработка
 
 ```bash
+# Создание виртуального окружения
+python -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+# или .venv\Scripts\activate  # Windows
+
 # Установка зависимостей
 pip install -r requirements.txt
 
-# Локальный запуск (требуются Qdrant и Redis)
+# Локальный запуск
 python main.py
+```
+
+## Структура проекта
+
+```
+.
+├── main.py              # Точка входа
+├── requirements.txt     # Зависимости Python
+├── docker-compose.yml   # Docker конфигурация
+├── Dockerfile           # Образ приложения
+├── .env.example         # Пример переменных окружения
+└── app/                 # Код приложения
+    ├── ai/              # AI компоненты
+    ├── bot/             # Telegram бот
+    └── core/            # Конфигурация
 ```
