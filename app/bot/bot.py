@@ -89,13 +89,15 @@ async def run_bot() -> None:
     bot = await create_bot()
     dp = await create_dispatcher()
     
-    # Register startup/shutdown handlers
-    dp.startup.register(lambda: on_startup(bot))
+    # Register shutdown handler
     dp.shutdown.register(on_shutdown)
     
     logger.info("Starting bot in polling mode")
     
     try:
+        # Run startup manually before polling
+        await on_startup(bot)
+        
         await dp.start_polling(bot)
     finally:
         await bot.session.close()

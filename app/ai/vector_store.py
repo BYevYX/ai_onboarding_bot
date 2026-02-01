@@ -26,15 +26,34 @@ def get_client():
             
             settings = get_settings()
             
-            # Suppress warning about insecure connection when no API key
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
+            # Log connection details (without exposing full API key)
+            api_key = settings.qdrant_api_key
+            logger.info(f"Connecting to Qdrant at: {settings.qdrant_url}")
+            logger.info(f"API key provided: {bool(api_key)}")
+            if api_key:
+                logger.info(f"API key length: {len(api_key)}, starts with: {api_key[:20]}...")
+            
+            # For Qdrant Cloud, we need to pass the URL and API key
+            # The URL should be HTTPS for cloud instances
+            if api_key:
                 _client = QdrantClient(
                     url=settings.qdrant_url,
-                    api_key=settings.qdrant_api_key if settings.qdrant_api_key else None,
+                    api_key=api_key,
+                    timeout=30,  # Increase timeout for cloud
                 )
+            else:
+                # Local Qdrant without auth
+                _client = QdrantClient(
+                    url=settings.qdrant_url,
+                    timeout=10,
+                )
+            
+            logger.info("Qdrant client created successfully")
+            
         except Exception as e:
-            logger.error(f"Failed to create Qdrant client: {e}")
+            logger.error(f"Failed to create Qdrant client: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return None
     return _client
 
@@ -59,11 +78,13 @@ async def get_vector_store():
             
             embeddings = get_embeddings()
             
+            # Note: parameter is 'embedding' (singular) in langchain-qdrant
             _vector_store = QdrantVectorStore(
                 client=client,
                 collection_name=settings.qdrant_collection_name,
-                embeddings=embeddings,
+                embedding=embeddings,
             )
+            logger.info("Vector store created successfully")
         except Exception as e:
             logger.error(f"Failed to create vector store: {e}")
             return None
@@ -79,17 +100,23 @@ async def initialize_collection() -> bool:
         from qdrant_client.models import Distance, VectorParams
         
         settings = get_settings()
+        logger.info(f"Initializing collection: {settings.qdrant_collection_name}")
+        
         client = get_client()
         
         if client is None:
+            logger.error("Client is None - could not create Qdrant client")
             _available = False
             return False
         
-        # Test connection
+        # Test connection by getting collections list
+        logger.info("Testing Qdrant connection...")
         collections = client.get_collections()
         collection_names = [col.name for col in collections.collections]
+        logger.info(f"Found existing collections: {collection_names}")
         
         if settings.qdrant_collection_name not in collection_names:
+            logger.info(f"Creating new collection: {settings.qdrant_collection_name}")
             client.create_collection(
                 collection_name=settings.qdrant_collection_name,
                 vectors_config=VectorParams(
@@ -98,12 +125,17 @@ async def initialize_collection() -> bool:
                 ),
             )
             logger.info(f"Created collection: {settings.qdrant_collection_name}")
+        else:
+            logger.info(f"Collection '{settings.qdrant_collection_name}' already exists")
         
         _available = True
+        logger.info("Qdrant initialization successful!")
         return True
         
     except Exception as e:
-        logger.error(f"Failed to initialize collection: {e}")
+        logger.error(f"Failed to initialize collection: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         _available = False
         return False
 

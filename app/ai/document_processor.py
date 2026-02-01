@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from langchain_core.documents import Document
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.core.config import get_settings
 from app.core.logging import get_logger

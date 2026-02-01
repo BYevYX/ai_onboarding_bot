@@ -21,9 +21,10 @@ def get_chat_model() -> ChatOpenAI:
     global _chat_model
     if _chat_model is None:
         settings = get_settings()
+        # Note: 'api_key' is the current parameter name in langchain-openai 0.3+
         _chat_model = ChatOpenAI(
             model=settings.openai_model,
-            openai_api_key=settings.openai_api_key,
+            api_key=settings.openai_api_key,
             temperature=0.7
         )
     return _chat_model
@@ -34,9 +35,10 @@ def get_embeddings() -> OpenAIEmbeddings:
     global _embeddings
     if _embeddings is None:
         settings = get_settings()
+        # Note: 'api_key' is the current parameter name in langchain-openai 0.3+
         _embeddings = OpenAIEmbeddings(
             model=settings.openai_embedding_model,
-            openai_api_key=settings.openai_api_key,
+            api_key=settings.openai_api_key,
         )
     return _embeddings
 
