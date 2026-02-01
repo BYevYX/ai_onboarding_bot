@@ -3,55 +3,89 @@ Simplified vector store using Qdrant.
 """
 
 from typing import List, Optional, Tuple, Dict, Any
+import warnings
 
-from langchain_qdrant import QdrantVectorStore
 from langchain_core.documents import Document
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.ai.llm import get_embeddings
 
 logger = get_logger("ai.vector_store")
 
-_client: Optional[QdrantClient] = None
-_vector_store: Optional[QdrantVectorStore] = None
+_client = None
+_vector_store = None
+_available = False
 
 
-def get_client() -> QdrantClient:
+def get_client():
     """Get Qdrant client."""
     global _client
     if _client is None:
-        settings = get_settings()
-        _client = QdrantClient(
-            url=settings.qdrant_url,
-            api_key=settings.qdrant_api_key,
-        )
+        try:
+            from qdrant_client import QdrantClient
+            
+            settings = get_settings()
+            
+            # Suppress warning about insecure connection when no API key
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                _client = QdrantClient(
+                    url=settings.qdrant_url,
+                    api_key=settings.qdrant_api_key if settings.qdrant_api_key else None,
+                )
+        except Exception as e:
+            logger.error(f"Failed to create Qdrant client: {e}")
+            return None
     return _client
 
 
-async def get_vector_store() -> QdrantVectorStore:
+async def get_vector_store():
     """Get LangChain Qdrant vector store."""
-    global _vector_store
-    if _vector_store is None:
-        settings = get_settings()
-        embeddings = get_embeddings()
+    global _vector_store, _available
+    
+    if not _available:
+        return None
         
-        _vector_store = QdrantVectorStore(
-            client=get_client(),
-            collection_name=settings.qdrant_collection_name,
-            embeddings=embeddings,
-        )
+    if _vector_store is None:
+        try:
+            from langchain_qdrant import QdrantVectorStore
+            from app.ai.llm import get_embeddings
+            
+            settings = get_settings()
+            client = get_client()
+            
+            if client is None:
+                return None
+            
+            embeddings = get_embeddings()
+            
+            _vector_store = QdrantVectorStore(
+                client=client,
+                collection_name=settings.qdrant_collection_name,
+                embeddings=embeddings,
+            )
+        except Exception as e:
+            logger.error(f"Failed to create vector store: {e}")
+            return None
+            
     return _vector_store
 
 
 async def initialize_collection() -> bool:
     """Initialize Qdrant collection if it doesn't exist."""
+    global _available
+    
     try:
+        from qdrant_client.models import Distance, VectorParams
+        
         settings = get_settings()
         client = get_client()
         
+        if client is None:
+            _available = False
+            return False
+        
+        # Test connection
         collections = client.get_collections()
         collection_names = [col.name for col in collections.collections]
         
@@ -65,11 +99,18 @@ async def initialize_collection() -> bool:
             )
             logger.info(f"Created collection: {settings.qdrant_collection_name}")
         
+        _available = True
         return True
         
     except Exception as e:
         logger.error(f"Failed to initialize collection: {e}")
+        _available = False
         return False
+
+
+async def is_available() -> bool:
+    """Check if vector store is available."""
+    return _available
 
 
 async def add_documents(
@@ -77,9 +118,14 @@ async def add_documents(
     metadata: Optional[Dict[str, Any]] = None
 ) -> List[str]:
     """Add documents to vector store."""
+    if not _available:
+        raise RuntimeError("Vector store is not available. Please start Qdrant.")
+    
     try:
-        await initialize_collection()
         store = await get_vector_store()
+        
+        if store is None:
+            raise RuntimeError("Vector store is not available")
         
         # Add metadata to documents
         if metadata:
@@ -102,8 +148,15 @@ async def search(
     score_threshold: float = 0.7
 ) -> List[Tuple[Document, float]]:
     """Search for similar documents."""
+    if not _available:
+        logger.warning("Vector store is not available - returning empty results")
+        return []
+    
     try:
         store = await get_vector_store()
+        
+        if store is None:
+            return []
         
         results = await store.asimilarity_search_with_score(
             query=query,
@@ -124,11 +177,17 @@ async def search(
 
 async def delete_by_source(source: str) -> bool:
     """Delete documents by source filename."""
+    if not _available:
+        return False
+    
     try:
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        
         settings = get_settings()
         client = get_client()
         
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        if client is None:
+            return False
         
         client.delete(
             collection_name=settings.qdrant_collection_name,
@@ -152,9 +211,15 @@ async def delete_by_source(source: str) -> bool:
 
 async def get_collection_stats() -> Dict[str, Any]:
     """Get collection statistics."""
+    if not _available:
+        return {"status": "unavailable", "error": "Qdrant not connected"}
+    
     try:
         settings = get_settings()
         client = get_client()
+        
+        if client is None:
+            return {"status": "unavailable", "error": "Client not initialized"}
         
         info = client.get_collection(settings.qdrant_collection_name)
         
@@ -166,4 +231,4 @@ async def get_collection_stats() -> Dict[str, Any]:
         
     except Exception as e:
         logger.error(f"Failed to get collection stats: {e}")
-        return {"error": str(e)}
+        return {"status": "error", "error": str(e)}

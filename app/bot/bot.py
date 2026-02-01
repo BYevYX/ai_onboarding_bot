@@ -3,10 +3,8 @@ Simplified Telegram bot setup.
 """
 
 from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from aiogram.fsm.storage.redis import RedisStorage
-import redis.asyncio as redis
+from aiogram.types import BotCommand
+from aiogram.fsm.storage.memory import MemoryStorage
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -19,19 +17,28 @@ logger = get_logger("bot")
 async def create_bot() -> Bot:
     """Create bot instance."""
     settings = get_settings()
-    return Bot(
-        token=settings.telegram_bot_token,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-    )
+    return Bot(token=settings.telegram_bot_token)
 
 
 async def create_dispatcher() -> Dispatcher:
-    """Create dispatcher with Redis storage."""
+    """Create dispatcher with storage."""
     settings = get_settings()
     
-    # Create Redis storage for FSM
-    redis_client = redis.from_url(settings.redis_url)
-    storage = RedisStorage(redis_client)
+    # Try to use Redis storage, fall back to memory storage
+    storage = None
+    
+    try:
+        import redis.asyncio as redis
+        from aiogram.fsm.storage.redis import RedisStorage
+        
+        # Test connection
+        redis_client = redis.from_url(settings.redis_url)
+        await redis_client.ping()
+        storage = RedisStorage(redis_client)
+        logger.info("Using Redis storage for FSM")
+    except Exception as e:
+        logger.warning(f"Redis not available, using memory storage: {e}")
+        storage = MemoryStorage()
     
     # Create dispatcher
     dp = Dispatcher(storage=storage)
@@ -42,16 +49,34 @@ async def create_dispatcher() -> Dispatcher:
     return dp
 
 
-async def on_startup() -> None:
+async def set_bot_commands(bot: Bot) -> None:
+    """Set bot menu commands."""
+    commands = [
+        BotCommand(command="start", description="🏠 Главное меню"),
+        BotCommand(command="help", description="📚 Справка"),
+        BotCommand(command="status", description="📊 Статус системы"),
+        BotCommand(command="ask", description="❓ Задать вопрос"),
+    ]
+    await bot.set_my_commands(commands)
+    logger.info("Bot commands set")
+
+
+async def on_startup(bot: Bot) -> None:
     """Startup handler."""
     logger.info("Bot starting up...")
     
-    # Initialize vector store
+    # Set bot commands menu
+    await set_bot_commands(bot)
+    
+    # Initialize vector store (non-blocking)
     try:
-        await vector_store.initialize_collection()
-        logger.info("Vector store initialized")
+        success = await vector_store.initialize_collection()
+        if success:
+            logger.info("Vector store initialized")
+        else:
+            logger.warning("Vector store not available - document features disabled")
     except Exception as e:
-        logger.error(f"Failed to initialize vector store: {e}")
+        logger.warning(f"Vector store initialization failed: {e}")
 
 
 async def on_shutdown() -> None:
@@ -65,7 +90,7 @@ async def run_bot() -> None:
     dp = await create_dispatcher()
     
     # Register startup/shutdown handlers
-    dp.startup.register(on_startup)
+    dp.startup.register(lambda: on_startup(bot))
     dp.shutdown.register(on_shutdown)
     
     logger.info("Starting bot in polling mode")

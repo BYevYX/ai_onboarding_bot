@@ -17,27 +17,28 @@ async def process_query(
 ) -> Dict[str, Any]:
     """Process a user query using RAG."""
     try:
-        # Search for relevant documents
-        search_results = await vector_store.search(
-            query=query,
-            k=5,
-            score_threshold=0.5
-        )
-        
-        # Build context from search results
         context = ""
         source_docs = []
         
-        if search_results:
-            context_parts = []
-            for doc, score in search_results:
-                context_parts.append(doc.page_content)
-                source_docs.append({
-                    "content": doc.page_content[:200] + "...",
-                    "source": doc.metadata.get("source", "unknown"),
-                    "score": score
-                })
-            context = "\n\n".join(context_parts)
+        # Try to search for relevant documents if vector store is available
+        if await vector_store.is_available():
+            search_results = await vector_store.search(
+                query=query,
+                k=5,
+                score_threshold=0.5
+            )
+            
+            # Build context from search results
+            if search_results:
+                context_parts = []
+                for doc, score in search_results:
+                    context_parts.append(doc.page_content)
+                    source_docs.append({
+                        "content": doc.page_content[:200] + "...",
+                        "source": doc.metadata.get("source", "unknown"),
+                        "score": score
+                    })
+                context = "\n\n".join(context_parts)
         
         # Generate response
         response = await llm.generate_response(
@@ -48,7 +49,7 @@ async def process_query(
         
         logger.info(
             f"RAG query processed for user {user_id}, "
-            f"found {len(search_results)} relevant documents"
+            f"found {len(source_docs)} relevant documents"
         )
         
         return {
@@ -80,7 +81,7 @@ async def health_check() -> Dict[str, Any]:
         stats = await vector_store.get_collection_stats()
         
         return {
-            "status": "healthy" if "error" not in stats else "unhealthy",
+            "status": "healthy" if stats.get('status') != 'unavailable' else "degraded",
             "vector_store": stats
         }
         
